@@ -1,4 +1,22 @@
 #include <Servo.h>
+#include <SPI.h>
+#include "SdFat.h"
+SdFat SD;
+
+#define OLED_RESET 4
+
+// Powermeter IO and variables 
+unsigned long interval = 100;
+unsigned long previousMillis = 0;
+const int chipSelect = 10;
+
+const int solarPin {A4}; 
+float resistorVoltage; 
+float resistorCurrent;
+
+File TimeFile;
+File VoltFile;
+File CurFile;
 
 // Photoresistor analogs input definitions 
 const int northResisor = A0; 
@@ -34,8 +52,11 @@ unsigned int analogNorth;
 unsigned int analogWest; 
 unsigned int analogEast;  
 
-const int iluminationRange = 50;  
+const int iluminationRangeNS = 50;  
+const int iluminationRangeEW = 30;  
 int iluminationDiference; 
+
+void logData(unsigned long currentMillis, float resistorCurrent, float resistorVoltage); 
 
 void setup() {
 
@@ -51,6 +72,7 @@ void setup() {
 	servo1.writeMicroseconds(servo1SetPoint); 
 	servo2.writeMicroseconds(servo2SetPoint); 
 	Serial.begin(9600); 
+	SD.begin(chipSelect);
 }
 
 void loop() {
@@ -59,43 +81,45 @@ void loop() {
 	analogSouth = analogRead(southResisor)+40;
 	analogNorth = analogRead(northResisor); // To take account of the diference between the resistors 
 	analogWest = analogRead(westResisor); // To take account of the diference between the resistors 
-	analogEast = analogRead(eastResisor)+40; 
+	analogEast = analogRead(eastResisor)+10; 
 
-	// // East-West Orientation 
-	// // We check if we need to change de orientation first
-	// iluminationDiference = analogEast - analogWest; 
-	// if ( iluminationDiference > iluminationRange || iluminationRange < - (iluminationRange)){
+	// East-West Orientation 
+	// We check if we need to change de orientation first
+	iluminationDiference = analogEast - analogWest; 
+	Serial.println("DiferenceEW "+String(iluminationDiference)) ; 
+	Serial.println("SetpointEW "+String(servo2SetPoint)); 
+	if ( iluminationDiference > iluminationRangeEW || iluminationDiference < - (iluminationRangeEW)){
 
-	// 	if( analogEast >  analogWest){
-	// 		servo1SetPoint+=10; 
+		if( analogEast >  analogWest){
+			servo1SetPoint+=10; 
 
-	// 		// Servo's setpoint verification 
-	// 		if(servo1SetPoint > servoTimeUpperLimit1)
-	// 			servo1SetPoint = servoTimeUpperLimit1; 
+			// Servo's setpoint verification 
+			if(servo1SetPoint > servoTimeUpperLimit1)
+				servo1SetPoint = servoTimeUpperLimit1; 
 
-	// 		servo1.writeMicroseconds(servo1SetPoint); 
-	// 	}
-	// 	else{
+			servo1.writeMicroseconds(servo1SetPoint); 
+		}
+		else{
 
-	// 		servo1SetPoint-=10; 
+			servo1SetPoint-=10; 
 
-	// 		// Servo's setpoint verification 
-	// 		if(servo1SetPoint < servoTimeBottomLimit1)
-	// 			servo1SetPoint = servoTimeBottomLimit1; 
+			// Servo's setpoint verification 
+			if(servo1SetPoint < servoTimeBottomLimit1)
+				servo1SetPoint = servoTimeBottomLimit1; 
 
-	// 		servo1.writeMicroseconds(servo1SetPoint); 
-	// 	}
+			servo1.writeMicroseconds(servo1SetPoint); 
+		}
 
-	// }
+	}
 		
 	// North-South Orientation 
 	// We check if we need to change the orientation : 
 	iluminationDiference = analogNorth - analogSouth; 
 
-	Serial.println("Diference "+String(iluminationDiference)) ; 
-	Serial.println("Setpoint "+String(servo2SetPoint)); 
+	Serial.println("DiferenceNS "+String(iluminationDiference)) ; 
+	Serial.println("SetpointNS "+String(servo2SetPoint)); 
 		
-	if( (iluminationDiference > iluminationRange) ||(iluminationDiference < (-iluminationRange))){
+	if( (iluminationDiference > iluminationRangeNS) ||(iluminationDiference < (-iluminationRangeNS))){
 
 		if(analogNorth < analogSouth){
 			servo2SetPoint += 10; 
@@ -116,6 +140,41 @@ void loop() {
 			servo2.writeMicroseconds(servo2SetPoint); 
 		}
 	}
-		
+	
+	// Log Data to the SD card 
+	unsigned long currentMillis = millis();
+
+  	if (currentMillis - previousMillis >= interval)
+	  {
+	    previousMillis = currentMillis;
+	    resistorVoltage = analogRead(solarPin)*(5.0/1023.0); 
+	    resistorCurrent = resistorVoltage/10.0; // current in mA
+	    Serial.println("Time "+ String(currentMillis)); 
+	    Serial.println("Current "+String(resistorCurrent)); 
+	    Serial.println("Voltage "+ String(resistorVoltage)); 
+	    logData(currentMillis, resistorCurrent, resistorVoltage); 
+	  }	
 	delay(10); 
+}
+
+void logData(unsigned long currentMillis, float resistorCurrent, float resistorVoltage ){
+
+  TimeFile = SD.open("TIME.txt", FILE_WRITE);
+  if (TimeFile) {
+    TimeFile.println(currentMillis);
+    TimeFile.close();
+  }
+
+  VoltFile = SD.open("VOLT.txt", FILE_WRITE);
+  if (VoltFile) {
+    VoltFile.println(resistorVoltage);
+    VoltFile.close();
+  }
+
+  CurFile = SD.open("CUR.txt", FILE_WRITE);
+  if (CurFile) {
+    CurFile.println(resistorCurrent);
+    CurFile.close();
+  }
+  
 }
